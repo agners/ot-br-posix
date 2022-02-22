@@ -90,6 +90,8 @@ otbr_install()
     if with BACKBONE_ROUTER; then
         otbr_options+=(
             "-DOTBR_BACKBONE_ROUTER=ON"
+            # Applicable to SiLabs Border Router
+            "-DOTBR_DUA_ROUTING=ON"
         )
     fi
 

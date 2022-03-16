@@ -88,7 +88,7 @@ endif()
 # Diagnostics / Logging
 set(OT_DIAGNOSTIC ON CACHE BOOL "Enable diagnostics module" FORCE)
 set(OT_FULL_LOGS ON CACHE BOOL "Enable debug level logging" FORCE)
-set(OT_LOG_LEVEL "NONE" CACHE STRING "Set OpenThread log level to NONE by default" FORCE)
+set(OT_LOG_LEVEL "DEBG" CACHE STRING "Set max OpenThread log level to DEBG (dynamic logging turned on)" FORCE)
 set(OT_COPROCESSOR_RPC ON CACHE BOOL "Enable co-processor RPC support" FORCE)
 
 # RCP recovery
@@ -120,7 +120,6 @@ if (OT_COPROCESSOR_RPC)
 endif()
 
 target_compile_definitions(ot-config INTERFACE
-    "-DOPENTHREAD_CONFIG_LOG_CLI=1"
     "-DOPENTHREAD_CONFIG_MAX_STATECHANGE_HANDLERS=3"
     "-DOPENTHREAD_CONFIG_MLE_STEERING_DATA_SET_OOB_ENABLE=1"
     "-DOPENTHREAD_CONFIG_TMF_PROXY_DUA_ENABLE=$<BOOL:${OTBR_DUA_ROUTING}>"

@@ -45,7 +45,8 @@
 #define OT_REST_RESOURCE_PATH_NODE_LEADERDATA "/node/leader-data"
 #define OT_REST_RESOURCE_PATH_NODE_NUMOFROUTER "/node/num-of-router"
 #define OT_REST_RESOURCE_PATH_NODE_EXTPANID "/node/ext-panid"
-#define OT_REST_RESOURCE_PATH_NODE_ACTIVE_DATASET_TLVS "/node/active-dataset-tlvs"
+#define OT_REST_RESOURCE_PATH_NODE_DATASET_ACTIVE "/node/dataset/active"
+#define OT_REST_RESOURCE_PATH_NODE_DATASET_PENDING "/node/dataset/pending"
 #define OT_REST_RESOURCE_PATH_NETWORK "/networks"
 #define OT_REST_RESOURCE_PATH_NETWORK_CURRENT "/networks/current"
 #define OT_REST_RESOURCE_PATH_NETWORK_CURRENT_COMMISSION "/networks/commission"
@@ -53,10 +54,12 @@
 
 #define OT_REST_HTTP_STATUS_200 "200 OK"
 #define OT_REST_HTTP_STATUS_202 "202 Accepted"
+#define OT_REST_HTTP_STATUS_204 "204 No Content"
 #define OT_REST_HTTP_STATUS_400 "400 Bad Request"
 #define OT_REST_HTTP_STATUS_404 "404 Not Found"
 #define OT_REST_HTTP_STATUS_405 "405 Method Not Allowed"
 #define OT_REST_HTTP_STATUS_408 "408 Request Timeout"
+#define OT_REST_HTTP_STATUS_409 "409 Conflict"
 #define OT_REST_HTTP_STATUS_500 "500 Internal Server Error"
 
 using std::chrono::duration_cast;
@@ -93,6 +96,9 @@ static std::string GetHttpStatus(HttpStatusCode aErrorCode)
     case HttpStatusCode::kStatusAccepted:
         httpStatus = OT_REST_HTTP_STATUS_202;
         break;
+    case HttpStatusCode::kStatusNoContent:
+        httpStatus = OT_REST_HTTP_STATUS_204;
+        break;
     case HttpStatusCode::kStatusBadRequest:
         httpStatus = OT_REST_HTTP_STATUS_400;
         break;
@@ -104,6 +110,9 @@ static std::string GetHttpStatus(HttpStatusCode aErrorCode)
         break;
     case HttpStatusCode::kStatusRequestTimeout:
         httpStatus = OT_REST_HTTP_STATUS_408;
+        break;
+    case HttpStatusCode::kStatusConflict:
+        httpStatus = OT_REST_HTTP_STATUS_409;
         break;
     case HttpStatusCode::kStatusInternalServerError:
         httpStatus = OT_REST_HTTP_STATUS_500;
@@ -127,8 +136,9 @@ Resource::Resource(ControllerOpenThread *aNcp)
     mResourceMap.emplace(OT_REST_RESOURCE_PATH_NODE_LEADERDATA, &Resource::LeaderData);
     mResourceMap.emplace(OT_REST_RESOURCE_PATH_NODE_NUMOFROUTER, &Resource::NumOfRoute);
     mResourceMap.emplace(OT_REST_RESOURCE_PATH_NODE_EXTPANID, &Resource::ExtendedPanId);
-    mResourceMap.emplace(OT_REST_RESOURCE_PATH_NODE_ACTIVE_DATASET_TLVS, &Resource::ActiveDatasetTlvs);
     mResourceMap.emplace(OT_REST_RESOURCE_PATH_NODE_RLOC, &Resource::Rloc);
+    mResourceMap.emplace(OT_REST_RESOURCE_PATH_NODE_DATASET_ACTIVE, &Resource::DatasetActive);
+    mResourceMap.emplace(OT_REST_RESOURCE_PATH_NODE_DATASET_PENDING, &Resource::DatasetPending);
 
     // Resource callback handler
     mResourceCallbackMap.emplace(OT_REST_RESOURCE_PATH_DIAGNOSTICS, &Resource::HandleDiagnosticCallback);
@@ -499,73 +509,185 @@ void Resource::Rloc(const Request &aRequest, Response &aResponse) const
     }
 }
 
-void Resource::GetActiveDatasetTlvs(Response &aResponse) const
+void Resource::GetDataset(DatasetType aDatasetType, const Request &aRequest, Response &aResponse) const
 {
-    otOperationalDatasetTlvs datasetTlvs;
-    otError                  error = OT_ERROR_NONE;
+    otbrError                error = OTBR_ERROR_NONE;
+    struct NodeInfo          node;
     std::string              body;
     std::string              errorCode;
+    otOperationalDataset     dataset;
+    otOperationalDatasetTlvs datasetTlvs;
 
-    SuccessOrExit(error = otDatasetGetActiveTlvs(mInstance, &datasetTlvs));
+    if (aRequest.GetHeaderValue(OT_REST_ACCEPT_HEADER) == OT_REST_CONTENT_TYPE_PLAIN)
+    {
+        if (aDatasetType == DatasetType::kActive)
+        {
+            VerifyOrExit(otDatasetGetActiveTlvs(mInstance, &datasetTlvs) == OT_ERROR_NONE,
+                         error = OTBR_ERROR_NOT_FOUND);
+        }
+        else if (aDatasetType == DatasetType::kPending)
+        {
+            VerifyOrExit(otDatasetGetPendingTlvs(mInstance, &datasetTlvs) == OT_ERROR_NONE,
+                         error = OTBR_ERROR_NOT_FOUND);
+        }
 
-    body = Json::Bytes2HexJsonString(datasetTlvs.mTlvs, datasetTlvs.mLength);
+        aResponse.SetContentType(OT_REST_CONTENT_TYPE_PLAIN);
+        body = Utils::Bytes2Hex(datasetTlvs.mTlvs, datasetTlvs.mLength);
+    }
+    else
+    {
+        if (aDatasetType == DatasetType::kActive)
+        {
+            VerifyOrExit(otDatasetGetActive(mInstance, &dataset) == OT_ERROR_NONE, error = OTBR_ERROR_NOT_FOUND);
+        }
+        else if (aDatasetType == DatasetType::kPending)
+        {
+            VerifyOrExit(otDatasetGetPending(mInstance, &dataset) == OT_ERROR_NONE, error = OTBR_ERROR_NOT_FOUND);
+        }
+        body = Json::Dataset2JsonString(dataset);
+    }
 
     aResponse.SetBody(body);
-    errorCode = GetHttpStatus(HttpStatusCode::kStatusOk);
-    aResponse.SetResponsCode(errorCode);
 
 exit:
-    if (error != OT_ERROR_NONE)
+    if (error == OTBR_ERROR_NONE)
     {
-        otbrLogWarning("Failed to get active dataset: %s", otThreadErrorToString(error));
+        errorCode = GetHttpStatus(HttpStatusCode::kStatusOk);
+        aResponse.SetResponsCode(errorCode);
+    }
+    else if (error == OTBR_ERROR_NOT_FOUND)
+    {
+        errorCode = GetHttpStatus(HttpStatusCode::kStatusNoContent);
+        aResponse.SetResponsCode(errorCode);
+    }
+    else
+    {
         ErrorHandler(aResponse, HttpStatusCode::kStatusInternalServerError);
     }
 }
 
-void Resource::SetActiveDatasetTlvs(const Request &aRequest, Response &aResponse) const
+void Resource::SetDataset(DatasetType aDatasetType, const Request &aRequest, Response &aResponse, bool create) const
 {
-    int                      ret;
-    otOperationalDatasetTlvs datasetTlvs;
-    otError                  error = OT_ERROR_NONE;
+    otbrError                error = OTBR_ERROR_NONE;
+    struct NodeInfo          node;
+    std::string              body;
     std::string              errorCode;
+    otOperationalDataset     dataset;
+    otOperationalDatasetTlvs datasetTlvs;
+    int                      ret;
+    bool                     isText;
 
-    ret = Json::Hex2BytesJsonString(aRequest.GetBody(), datasetTlvs.mTlvs, OT_OPERATIONAL_DATASET_MAX_LENGTH);
-    if (ret < 0)
+    isText = aRequest.GetHeaderValue(OT_REST_CONTENT_TYPE_HEADER) == OT_REST_CONTENT_TYPE_PLAIN;
+
+    if (aDatasetType == DatasetType::kActive)
     {
-        errorCode = GetHttpStatus(HttpStatusCode::kStatusBadRequest);
-        aResponse.SetResponsCode(errorCode);
-        ExitNow();
+        otbrLogWarning("STate is %d", otThreadGetDeviceRole(mInstance));
+        VerifyOrExit(otThreadGetDeviceRole(mInstance) == OT_DEVICE_ROLE_DISABLED, error = OTBR_ERROR_INVALID_STATE);
     }
-    datasetTlvs.mLength = ret;
 
-    SuccessOrExit(error = otDatasetSetActiveTlvs(mInstance, &datasetTlvs));
+    if (isText)
+    {
+        // Only PUT allowed for text/plain
+        VerifyOrExit(!create, error = OTBR_ERROR_INVALID_ARGS);
+        ret = Json::Hex2BytesJsonString(aRequest.GetBody(), datasetTlvs.mTlvs, OT_OPERATIONAL_DATASET_MAX_LENGTH);
+        VerifyOrExit(ret >= 0, error = OTBR_ERROR_INVALID_ARGS);
+        datasetTlvs.mLength = ret;
+
+        if (aDatasetType == DatasetType::kActive)
+        {
+            VerifyOrExit(otDatasetSetActiveTlvs(mInstance, &datasetTlvs) == OT_ERROR_NONE, error = OTBR_ERROR_REST);
+        }
+        else if (aDatasetType == DatasetType::kPending)
+        {
+            VerifyOrExit(otDatasetSetPendingTlvs(mInstance, &datasetTlvs) == OT_ERROR_NONE, error = OTBR_ERROR_REST);
+        }
+    }
+    else
+    {
+        if (create)
+        {
+            VerifyOrExit(otDatasetCreateNewNetwork(mInstance, &dataset) == OT_ERROR_NONE, error = OTBR_ERROR_REST);
+        }
+        else
+        {
+            if (aDatasetType == DatasetType::kActive)
+            {
+                VerifyOrExit(otDatasetGetActive(mInstance, &dataset) == OT_ERROR_NONE, error = OTBR_ERROR_NOT_FOUND);
+            }
+            else if (aDatasetType == DatasetType::kPending)
+            {
+                VerifyOrExit(otDatasetGetPending(mInstance, &dataset) == OT_ERROR_NONE, error = OTBR_ERROR_NOT_FOUND);
+            }
+        }
+
+        VerifyOrExit(Json::JsonString2Dataset(aRequest.GetBody(), dataset), error = OTBR_ERROR_INVALID_ARGS);
+
+        if (aDatasetType == DatasetType::kActive)
+        {
+            VerifyOrExit(otDatasetSetActive(mInstance, &dataset) == OT_ERROR_NONE, error = OTBR_ERROR_REST);
+        }
+        else if (aDatasetType == DatasetType::kPending)
+        {
+            VerifyOrExit(otDatasetSetPending(mInstance, &dataset) == OT_ERROR_NONE, error = OTBR_ERROR_REST);
+        }
+    }
 
     errorCode = GetHttpStatus(HttpStatusCode::kStatusAccepted);
     aResponse.SetResponsCode(errorCode);
+
 exit:
-    if (error != OT_ERROR_NONE)
+    if (error == OTBR_ERROR_INVALID_ARGS)
     {
-        otbrLogWarning("Failed to set active dataset: %s", otThreadErrorToString(error));
+        ErrorHandler(aResponse, HttpStatusCode::kStatusBadRequest);
+    }
+    else if (error == OTBR_ERROR_NOT_FOUND)
+    {
+        ErrorHandler(aResponse, HttpStatusCode::kStatusResourceNotFound);
+    }
+    else if (error == OTBR_ERROR_INVALID_STATE)
+    {
+        ErrorHandler(aResponse, HttpStatusCode::kStatusConflict);
+    }
+    else if (error != OTBR_ERROR_NONE)
+    {
         ErrorHandler(aResponse, HttpStatusCode::kStatusInternalServerError);
     }
 }
 
-void Resource::ActiveDatasetTlvs(const Request &aRequest, Response &aResponse) const
+void Resource::Dataset(DatasetType aDatasetType, const Request &aRequest, Response &aResponse) const
 {
     std::string errorCode;
 
     switch (aRequest.GetMethod())
     {
     case HttpMethod::kGet:
-        GetActiveDatasetTlvs(aResponse);
+        GetDataset(aDatasetType, aRequest, aResponse);
+        break;
+    case HttpMethod::kPost:
+        SetDataset(aDatasetType, aRequest, aResponse, true);
         break;
     case HttpMethod::kPut:
-        SetActiveDatasetTlvs(aRequest, aResponse);
+        SetDataset(aDatasetType, aRequest, aResponse, false);
+        break;
+    case HttpMethod::kOptions:
+        errorCode = GetHttpStatus(HttpStatusCode::kStatusOk);
+        aResponse.SetResponsCode(errorCode);
+        aResponse.SetComplete();
         break;
     default:
         ErrorHandler(aResponse, HttpStatusCode::kStatusMethodNotAllowed);
         break;
     }
+}
+
+void Resource::DatasetActive(const Request &aRequest, Response &aResponse) const
+{
+    Dataset(DatasetType::kActive, aRequest, aResponse);
+}
+
+void Resource::DatasetPending(const Request &aRequest, Response &aResponse) const
+{
+    Dataset(DatasetType::kPending, aRequest, aResponse);
 }
 
 void Resource::DeleteOutDatedDiagnostic(void)

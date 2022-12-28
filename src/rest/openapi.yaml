@@ -107,6 +107,22 @@ paths:
                 type: number
                 description: Current state
                 example: 4
+    post:
+      tags:
+        - node
+      summary: Set current Thread state.
+      description: Allow to enable the network interface and Thread
+      responses:
+        "200":
+          description: Successful operation.
+      requestBody:
+        description: New Thread state
+        content:
+          application/json:
+            schema:
+              type: string
+              description: Can be "enable" or "disable".
+              example: "enable"
   /node/network-name:
     get:
       tags:

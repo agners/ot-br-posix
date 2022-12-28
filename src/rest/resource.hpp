@@ -134,6 +134,7 @@ private:
     void GetNodeInfo(Response &aResponse) const;
     void GetDataExtendedAddr(Response &aResponse) const;
     void GetDataState(Response &aResponse) const;
+    void SetDataState(const Request &aRequest, Response &aResponse) const;
     void GetDataNetworkName(Response &aResponse) const;
     void GetDataLeaderData(Response &aResponse) const;
     void GetDataNumOfRoute(Response &aResponse) const;

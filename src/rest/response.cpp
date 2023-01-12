@@ -35,6 +35,7 @@
     "Access-Control-Allow-Headers, Origin,Accept, X-Requested-With, Content-Type, Access-Control-Request-Method, " \
     "Access-Control-Request-Headers"
 #define OT_REST_RESPONSE_ACCESS_CONTROL_ALLOW_METHOD "GET, OPTIONS, POST, PUT"
+#define OT_REST_RESPONSE_CONNECTION "close"
 
 namespace otbr {
 namespace rest {
@@ -51,6 +52,7 @@ Response::Response(void)
     mHeaders["Access-Control-Allow-Origin"]  = OT_REST_RESPONSE_ACCESS_CONTROL_ALLOW_ORIGIN;
     mHeaders["Access-Control-Allow-Methods"] = OT_REST_RESPONSE_ACCESS_CONTROL_ALLOW_METHOD;
     mHeaders["Access-Control-Allow-Headers"] = OT_REST_RESPONSE_ACCESS_CONTROL_ALLOW_HEADERS;
+    mHeaders["Connection"]                   = OT_REST_RESPONSE_CONNECTION;
 }
 
 void Response::SetComplete()
